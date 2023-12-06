@@ -112,11 +112,11 @@ nlx vitest
 ```bash
 nu
 
-# (not available for bun)
 # npm upgrade
 # yarn upgrade (Yarn 1)
 # yarn up (Yarn Berry)
 # pnpm update
+# bun update
 ```
 
 ```bash
@@ -189,11 +189,21 @@ na run foo
 
 <br>
 
-### Change Directory
+### Global Flags
 
 ```bash
+# ?               | Print the command execution depends on the agent
+ni vite ?
+
+# -C              | Change directory before running the command
 ni -C packages/foo vite
 nr -C playground dev
+
+# -v, --version   | Show version number
+ni -v
+
+# -h, --help      | Show help
+ni -h
 ```
 
 <br>
@@ -251,7 +261,7 @@ if (-not (Test-Path $profile)) {
 $profileEntry = 'Remove-Item Alias:ni -Force -ErrorAction Ignore'
 $profileContent = Get-Content $profile
 if ($profileContent -notcontains $profileEntry) {
-  $profileEntry | Out-File $profile -Append -Force
+  ("`n" + $profileEntry) | Out-File $profile -Append -Force -Encoding UTF8
 }
 ```
 

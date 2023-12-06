@@ -2,6 +2,7 @@
 import { resolve } from 'node:path'
 import process from 'node:process'
 import prompts from '@posva/prompts'
+import type { Options as ExecaOptions } from 'execa'
 import { execaCommand } from 'execa'
 import c from 'kleur'
 import { version } from '../package.json'
@@ -11,7 +12,7 @@ import { getDefaultAgent, getGlobalAgent } from './config'
 import type { DetectOptions } from './detect'
 import { detect } from './detect'
 import { getVoltaPrefix, remove } from './utils'
-import { UnsupportedCommand } from './parse'
+import { UnsupportedCommand, getCommand } from './parse'
 
 const DEBUG_SIGN = '?'
 
@@ -23,8 +24,10 @@ export interface RunnerContext {
 
 export type Runner = (agent: Agent, args: string[], ctx?: RunnerContext) => Promise<string | undefined> | string | undefined
 
-export async function runCli(fn: Runner, options: DetectOptions = {}) {
-  const args = process.argv.slice(2).filter(Boolean)
+export async function runCli(fn: Runner, options: DetectOptions & { args?: string[] } = {}) {
+  const {
+    args = process.argv.slice(2).filter(Boolean),
+  } = options
   try {
     await run(fn, args, options)
   }
@@ -75,6 +78,33 @@ export async function run(fn: Runner, args: string[], options: DetectOptions = {
   if (debug)
     remove(args, DEBUG_SIGN)
 
+  let cwd = options.cwd ?? process.cwd()
+  if (args[0] === '-C') {
+    cwd = resolve(cwd, args[1])
+    args.splice(0, 2)
+  }
+
+  if (args.length === 1 && (args[0]?.toLowerCase() === '-v' || args[0] === '--version')) {
+    const getCmd = (a: Agent) => agents.includes(a) ? getCommand(a, 'agent', ['-v']) : `${a} -v`
+    const getV = (a: string, o?: ExecaOptions) => execaCommand(getCmd(a as Agent), o).then(e => e.stdout).then(e => e.startsWith('v') ? e : `v${e}`)
+    const globalAgentPromise = getGlobalAgent()
+    const globalAgentVersionPromise = globalAgentPromise.then(getV)
+    const agentPromise = detect({ ...options, cwd }).then(a => a || '')
+    const agentVersionPromise = agentPromise.then(a => a && getV(a, { cwd }))
+    const nodeVersionPromise = getV('node', { cwd })
+
+    console.log(`@antfu/ni  ${c.cyan(`v${version}`)}`)
+    console.log(`node       ${c.green(await nodeVersionPromise)}`)
+    const [agent, agentVersion] = await Promise.all([agentPromise, agentVersionPromise])
+    if (agent)
+      console.log(`${agent.padEnd(10)} ${c.blue(agentVersion)}`)
+    else
+      console.log('agent      no lock file')
+    const [globalAgent, globalAgentVersion] = await Promise.all([globalAgentPromise, globalAgentVersionPromise])
+    console.log(`${(`${globalAgent} -g`).padEnd(10)} ${c.blue(globalAgentVersion)}`)
+    return
+  }
+
   if (args.length === 1 && (args[0] === '--version' || args[0] === '-v')) {
     console.log(`@antfu/ni v${version}`)
     return
@@ -83,22 +113,16 @@ export async function run(fn: Runner, args: string[], options: DetectOptions = {
   if (args.length === 1 && ['-h', '--help'].includes(args[0])) {
     const dash = c.dim('-')
     console.log(c.green(c.bold('@antfu/ni')) + c.dim(` use the right package manager v${version}\n`))
-    console.log(`ni   ${dash}  install`)
-    console.log(`nr   ${dash}  run`)
-    console.log(`nlx  ${dash}  execute`)
-    console.log(`nu   ${dash}  upgrade`)
-    console.log(`nun  ${dash}  uninstall`)
-    console.log(`nci  ${dash}  clean install`)
-    console.log(`na   ${dash}  agent alias`)
+    console.log(`ni    ${dash}  install`)
+    console.log(`nr    ${dash}  run`)
+    console.log(`nlx   ${dash}  execute`)
+    console.log(`nu    ${dash}  upgrade`)
+    console.log(`nun   ${dash}  uninstall`)
+    console.log(`nci   ${dash}  clean install`)
+    console.log(`na    ${dash}  agent alias`)
+    console.log(`ni -v ${dash}  show used agent`)
     console.log(c.yellow('\ncheck https://github.com/antfu/ni for more documentation.'))
     return
-  }
-
-  let cwd = options.cwd ?? process.cwd()
-
-  if (args[0] === '-C') {
-    cwd = resolve(cwd, args[1])
-    args.splice(0, 2)
   }
 
   let command = await getCliCommand(fn, args, options, cwd)
@@ -115,5 +139,5 @@ export async function run(fn: Runner, args: string[], options: DetectOptions = {
     return
   }
 
-  await execaCommand(command, { stdio: 'inherit', encoding: 'utf-8', cwd })
+  await execaCommand(command, { stdio: 'inherit', cwd })
 }
